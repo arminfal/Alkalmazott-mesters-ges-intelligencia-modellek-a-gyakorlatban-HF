@@ -93,7 +93,7 @@ def callback():
 
 while code is None:
     try:
-        # This is just an example, replace with your actual authorization URL    client_id = '129ffdb230d64c39a15e80a6c963c424'
+        # This is just an example, replace with your actual authorization URL    client_id = 'x'
         client_secret = 'x' 
         redirect_uri = 'http://localhost:8000/callback'
         scope = 'user-top-read' 
