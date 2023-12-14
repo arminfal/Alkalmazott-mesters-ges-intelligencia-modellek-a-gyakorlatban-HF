@@ -1,225 +1,144 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.neighbors import NearestNeighbors
-import requests
 import base64
+import sys
+import requests
 import webbrowser
-from flask import Flask, jsonify, request, render_template
-import threading
 import time
+import threading
 from flask import Flask, request
-from multiprocessing import Process
-
-client_id = 'x'
-client_secret = 'x'
-
-# Define a function to start the Flask server
-def start_server():
-    app.run(port=8000)
-
-# Start the Flask server in a separate process
-server_process = Process(target=start_server)
-server_process.start()
-
-# Wait for the redirect to occur
-while code is None:
-    time.sleep(10)
-
-def refresh_access_token(refresh_token):
-    # Prepare the header
-    encoded = base64.b64encode(f'{client_id}:{client_secret}'.encode('utf-8')).decode('ascii')
-    headers = {
-        'Authorization': f'Basic {encoded}',
-    }
-
-    # Prepare the payload
-    payload = {
-        'grant_type': 'refresh_token',
-        'refresh_token': refresh_token,
-    }
-
-    # Send the request
-    response = requests.post('https://accounts.spotify.com/api/token', headers=headers, data=payload)
-
-    # Parse the response
-    data = response.json()
-
-    # Return the access token and the refresh token
-    return data['access_token'], data['refresh_token']
-
-def get_authorization_code():
-    # Spotify API credentials
-    client_id = 'x'
-    redirect_uri = 'http://localhost:8000/callback'
-    scope = 'user-top-read'  # Replace with the scopes you need
-
-    # Prepare the authorization URL
-    url = f'https://accounts.spotify.com/authorize?response_type=code&client_id=x&redirect_uri=http://localhost:8000/callback&scope=user-top-read'
-
-    # Open the authorization URL in the user's browser
-    webbrowser.open(url)
-
-
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import NearestNeighbors
+from flask import Flask, request, render_template, redirect, session
+from werkzeug.serving import make_server
+import csv
+from werkzeug.serving import run_simple
 
 app = Flask(__name__)
 code = None
+app.secret_key = 'asdsadsadsadsad'
+
+client_id = '769557ef33434314b3b5260275e7d407'
+client_secret = '156228aa0dc0409c94512f394f7ba441'
+redirect_uri = 'http://localhost:8000/callback'
+@app.route('/authorize', methods=['GET', 'POST'])
+def authorize():
+    authorization_url = f'https://accounts.spotify.com/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope=user-top-read'
+    return redirect(authorization_url, code=302)
 
 @app.route('/callback')
 def callback():
     global code
     code = request.args.get('code')
-    access_token, refresh_token = get_access_token()
-    
-    # Set up the headers for the API requests
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-    }
 
-    # Fetch the user's top artists
-    response = requests.get('https://api.spotify.com/v1/me/top/artists', headers=headers)
-    data = response.json()
-    artist_ids = [artist['id'] for artist in data['items']]
+    if code is None:
+        print("Failed to get authorization code")
+        return redirect("/", code=302)
 
-    # Use the artist IDs to get recommendations
-    params = {
-        'seed_artists': ','.join(artist_ids),
-    }
-    response = requests.get('https://api.spotify.com/v1/recommendations', headers=headers, params=params)
-    data = response.json()
-    recommendations = [track['name'] for track in data['tracks']]
+    # Get the access token using the authorization code
+    tokens = get_access_token()
+    if tokens is None:
+        print("Failed to get access token")
+        return redirect("/", code=302)
 
-    return jsonify(recommendations)
+    access_token, refresh_token = tokens
+    session['access_token'] = access_token  # Store the access token in a session variable
 
-while code is None:
-    try:
-        # This is just an example, replace with your actual authorization URL    client_id = 'x'
-        client_secret = 'x' 
-        redirect_uri = 'http://localhost:8000/callback'
-        scope = 'user-top-read' 
-
-        # Prepare the authorization URL
-        authorization_url = f'https://accounts.spotify.com/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope={scope}'
-
-        webbrowser.open(authorization_url)
-        time.sleep(10)  # wait for some time for the user to authorize the app
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    return redirect("/search", code=302)
 def get_access_token():
-     # Spotify API credentials
-    client_id = 'x'
-    client_secret = 'x' 
-    redirect_uri = 'http://localhost:8000/callback'
-    scope = 'user-top-read' 
+    global code
 
-    # Prepare the authorization URL
-    authorization_url = f'https://accounts.spotify.com/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope={scope}'
+    if code is None:
+        print("Failed to get authorization code")
+        return None
 
-    # Prepare the header
     encoded = base64.b64encode(f'{client_id}:{client_secret}'.encode('utf-8')).decode('ascii')
-    headers = {
-        'Authorization': f'Basic {encoded}',
-    }
-    
-    print(authorization_url)
-    print(headers)
-    # Open the authorization URL in the user's browser
-    webbrowser.open(authorization_url)
+    headers = {'Authorization': f'Basic {encoded}',}
 
-    # Start a web server to listen for the redirect
-    threading.Thread(target=app.run, kwargs={'port': 8000}).start()
-
-    # Wait for the redirect to occur
-    while code is None:
-        time.sleep(10000)
-
-    # Prepare the payload
     payload = {
         'grant_type': 'authorization_code',
         'code': code,
         'redirect_uri': redirect_uri,
     }
 
-    # Send the request
     response = requests.post('https://accounts.spotify.com/api/token', headers=headers, data=payload)
-    # Parse response
     data = response.json()
 
 
-    # Check if 'access_token' is in the response
     if 'access_token' not in data:
         print(f"'access_token' not found in the response: {data}")
+        if 'error' in data and data['error'] == 'invalid_grant':
+            print("Invalid authorization code. Please try again.")
         return None
-    # Return the access token and the refresh token
+
     return data['access_token'], data['refresh_token']
-def get_top_artists():
-    # Get access token
-    tokens = get_access_token()
-    if tokens is None:
-        print("Failed to get access token")
-        return None
-
-    access_token, refresh_token = tokens
-    # Define headers
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-    }
-
-    # Initialize URL for the first request
+def get_top_artists(access_token):  # Add an access_token parameter
+    headers = {'Authorization': f'Bearer {access_token}',}
     url = 'https://api.spotify.com/v1/me/top/artists'
-
-    # Initialize list to store all artists
     all_artists = []
+    try:
+        with open('music_preferences.csv', 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["artist", "genre"])  # Write header
 
-    while url:
-        # Send request to Spotify API
-        response = requests.get(url, headers=headers)
+            while url:
+                # Send request to Spotify API
+                response = requests.get(url, headers=headers)
 
-        # Parse response
-        data = response.json()
+                # Parse response
+                data = response.json()
+                print(data)  # Print the response   
 
-        # Extract artists from this page and add them to the list
-        all_artists.extend([artist['name'] for artist in data['items']])
-
-        # Get the URL for the next page
-        url = data['next']
+                # Extract artists from this page and add them to the list
+                if 'items' in data:
+                    for artist in data['items']:
+                        if 'name' in artist and 'genres' in artist:
+                            all_artists.append(artist['name'])
+                            writer.writerow([artist['name'], artist['genres'][0] if artist['genres'] else ""])  # Write artist name and first genre
+                        else:
+                            print("'name' or 'genres' key not found in the artist object")
+                            return None
+                else:
+                    print("'items' key not found in the response")
+                    return None
+                # Get the URL for the next page
+                url = data['next']
+            with open('music_preferences.csv', 'r') as file:
+                print(file.read())  # Print the contents of the file
+    except Exception as e:
+        print(f"Failed to write to CSV file: {e}")
+        return None
 
     return all_artists
-
-# Get access token
-access_token = get_access_token()
-
-# Define headers
-headers = {
-    'Authorization': f'Bearer {access_token}',
-}
-
-response = requests.get('https://api.spotify.com/v1/me/top/artists', headers=headers)
-
-# Parse response
-data = response.json()
-
+'''
 # Extract needed data
-
 top_artists = get_top_artists()
+if top_artists is None:
+    print("Failed to get top artists")
+    sys.exit()  # Stop the script
 
-# Print top artists
-for artist in top_artists:
-    print(artist)
 # Load data
-#data = pd.read_csv('music_preferences.csv')  #spotify kód
-data = pd.DataFrame({
-    'genre': ['pop', 'rock', 'jazz', 'pop', 'blues'],
-    'artist': ['Artist1', 'Artist2', 'Artist3', 'Artist4', 'Artist5'],
-    'song_name': ['Song1', 'Song2', 'Song3', 'Song4', 'Song5']
-})
+try:
+    data = pd.read_csv('music_preferences.csv')  #spotify kód
+except pd.errors.EmptyDataError:
+    print("The 'music_preferences.csv' file is empty or doesn't exist.")
+    sys.exit()  # Stop the script
 
 # Preprocess data
 data.drop_duplicates(inplace=True)
 data.fillna(0, inplace=True)
 
 # Extract features
-features = data[['genre', 'artist']]
+try:
+    features = data[['artist', 'genre']]
+except KeyError:
+    print("The 'artist' column is not in the DataFrame.")
+    sys.exit()  # Stop the script
+    
+# Check if features DataFrame is empty
+if features.empty:
+    print("The 'features' DataFrame is empty.")
+    sys.exit()  # Stop the script
 
 # Scale features
 scaler = StandardScaler()
@@ -231,26 +150,108 @@ X_train, X_test = train_test_split(scaled_features, test_size=0.2, random_state=
 # Train model
 model = NearestNeighbors(n_neighbors=5)
 model.fit(X_train)
+'''
+@app.route('/search', methods=['GET', 'POST'])
+def search():
+    artist_name = request.form.get('artist')
+        # Check if the session has an access token
+    if request.method == 'POST':
+        # Store the artist name in the session so it can be used after the user is redirected back from the Spotify authorization page
+        session['artist'] = request.form.get('artist')
+
+        # Redirect the user to the Spotify authorization page
+        return redirect('/authorize', code=302)
+
+    # Check if the session has an access token
+    if 'access_token' not in session:
+        # No access token in the session, redirect to the authorize route
+        return redirect('/authorize', code=302)
+    artist_name = session.get('artist')
+    # Get access token
+    tokens = get_access_token()
+    if tokens is None:
+        print("Failed to get access token")
+        return render_template('search_results.html', error="Failed to get access token")
+
+    access_token, refresh_token = tokens
+    headers = {'Authorization': f'Bearer {access_token}',}
+
+    # Search for the artist
+    search_url = f'https://api.spotify.com/v1/search?q={artist_name}&type=artist&limit=1'
+    response = requests.get(search_url, headers=headers)
+    data = response.json()
+
+    if 'artists' not in data or not data['artists']['items']:
+        return render_template('search_results.html', error="Artist not found")
+
+    artist = data['artists']['items'][0]
+
+    # Get the artist's genres
+    genres = artist['genres']
+
+    if not genres:
+        return render_template('search_results.html', error="No genres found for this artist")
+
+    # Search for artists of the same genre
+    genre = genres[0]  # Use the first genre
+    search_url = f'https://api.spotify.com/v1/search?q=genre:{genre}&type=artist&limit=5'
+    response = requests.get(search_url, headers=headers)
+    data = response.json()
+
+    if 'artists' not in data or not data['artists']['items']:
+        return render_template('search_results.html', error="No artists found for this genre")
+
+    similar_artists = [artist['name'] for artist in data['artists']['items']]
+
+    # Return a response
+    return render_template('search_results.html', artist_name=artist_name, similar_artists=similar_artists)
 
 @app.route('/', methods=['GET', 'POST'])
-
 def index():
+        # Check if the session has an access token
+
+    artist = None  # Define artist here
+    genres = None
     if request.method == 'POST':
         # Get user input
-        genre = request.form.get('genre')
-        artist = request.form.get('artist')
+        artist_name = request.form.get('artist')
 
-        # Make a recommendation
-        song = [genre, artist]  # User input
-        song = scaler.transform([song])  # Scale user input
-        recommendation = model.kneighbors(song, return_distance=False)
+        # Get access token
+        tokens = get_access_token()
+        if tokens is None:
+            print("Failed to get access token")
+            return render_template('index.html', error="Failed to get access token")
 
-        # Get recommendation
-        recommended_songs = data.iloc[recommendation[0]]
+        access_token, refresh_token = tokens
+        headers = {'Authorization': f'Bearer {access_token}',}
 
-        return render_template('index.html', recommended_songs=recommended_songs)
+        # Search for the artist
+        search_url = f'https://api.spotify.com/v1/search?q={artist_name}&type=artist&limit=1'
+        response = requests.get(search_url, headers=headers)
+        data = response.json()
 
-    return render_template('index.html')
+        if 'artists' not in data or not data['artists']['items']:
+            return render_template('index.html', error="Artist not found")
 
+        artist = data['artists']['items'][0]
+
+        # Get the artist's genres
+        if artist is not None and 'genres' in artist:
+            genres = artist['genres']
+    if not genres:
+        return render_template('index.html', error="No genres found for this artist")
+
+    # Search for artists of the same genre
+    genre = genres[0]  # Use the first genre
+    search_url = f'https://api.spotify.com/v1/search?q=genre:{genre}&type=artist&limit=5'
+    response = requests.get(search_url, headers=headers)
+    data = response.json()
+
+    if 'artists' not in data or not data['artists']['items']:
+        return render_template('index.html', error="No artists found for this genre")
+
+    similar_artists = [artist['name'] for artist in data['artists']['items']]
+
+    return render_template('index.html', similar_artists=similar_artists)
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='localhost', port=8000, debug=True)
